@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authenticate } from "../middlewares/auth";
 import {
     getRoles,
     getRoleById,
@@ -10,6 +11,7 @@ import {
 } from '../controllers/roleController'
 const router = Router();
 
+router.use(authenticate);
 router.get('/getRoles', getRoles);
 router.get ('/getRoleById/:id', getRoleById);
 router.post('/createRole', createRole);

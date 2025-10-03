@@ -1,8 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import User from '../models/User';
 import Role from '../models/Role';
+import { env } from "../config/config";
 import { ApiError } from "../utils/apiError";
 import { Types } from "mongoose";
+import bcrypt from 'bcryptjs';
+import jwt from "jwt-simple";
 
 
 export const getUsers = async (req: Request, res: Response, next: NextFunction) => {
@@ -59,8 +62,10 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
             return next(new ApiError(404, "No such role was found"));
         }
 
+        const hashedPassword = await bcrypt.hash(password, 10); 
+
         const newUser = new User({
-            name, email, password, roles: roleIds
+            name, email, password: hashedPassword, roles: roleIds
         });
         await newUser.save();
         res.status(201).json({
@@ -165,6 +170,42 @@ export const deleteUser = async (req: Request, res: Response, next: NextFunction
             success: true,
             data: removedUser,
             message: "User deleted succesfully"
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const loginUser = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const {email, password} = req.body;
+
+        const user = await  User.findOne({email});
+
+        if (!user) {
+            return next(new ApiError(404, "User not found"));
+        }
+
+        const validPassword = bcrypt.compareSync(password, user.password);
+
+        if(!validPassword){
+            return next(new ApiError(404, "User not found"));
+        }
+
+        const payload = {
+            id: user._id,
+            exp: Math.floor(Date.now() / 1000) + 3600 
+        };
+        const token = jwt.encode(payload, env.JWT_SECRET);
+
+        res.status(200).json({
+            success: true,
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email
+            }
         });
     } catch (error) {
         next(error);
