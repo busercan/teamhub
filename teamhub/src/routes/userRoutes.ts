@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { authenticate } from "../middlewares/auth";
+import { authenticate, authorize } from "../middlewares/auth";
+import {PERMISSIONS} from "../utils/permissions"
 import {
     getUsers,
     getUserById,
@@ -15,11 +16,11 @@ router.post('/createUser', createUser);
 router.post('/loginUser', loginUser);
 
 router.use(authenticate);
-router.get('/getUsers', getUsers);
-router.get ('/getUserById/:id', getUserById);
-router.post('/updateUser', updateUser);
-router.post('/changePassword/:id', changePassword);
-router.delete('/deleteUser', deleteUser);
+router.get('/getUsers', authorize(PERMISSIONS.USER_VIEW), getUsers);
+router.get ('/getUserById/:id', authorize(PERMISSIONS.USER_VIEW), getUserById);
+router.post('/updateUser', authorize(PERMISSIONS.USER_UPDATE), updateUser);
+router.post('/changePassword/:id', authorize(PERMISSIONS.USER_UPDATE), changePassword);
+router.delete('/deleteUser', authorize(PERMISSIONS.USER_DELETE), deleteUser);
 
 
 export default router;

@@ -10,7 +10,7 @@ export interface IRole extends Document{
 const RoleSchema: Schema = new Schema(
     {
         name: {type: String, required: true},
-        permissions: [{ type: String }],
+        permissions: [{ type: String , required: true}],
     },
     { timestamps: true }
 );
