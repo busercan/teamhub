@@ -27,4 +27,5 @@ async function connectRedis() {
 
 connectRedis();
 
+export const sendCommand = (...args: string[]) => redisClient.sendCommand(args as any);
 export default redisClient;
