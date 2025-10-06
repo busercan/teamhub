@@ -1,5 +1,5 @@
-import { Request, Response, NextFunction } from "express";
-import { ApiError } from "../utils/apiError";
+import { Request, Response, NextFunction } from 'express';
+import { ApiError } from '../utils/apiError';
 
 export const errorHandler = (
   err: Error | ApiError,
@@ -10,7 +10,7 @@ export const errorHandler = (
   console.error(err); // Loglama
 
   let statusCode = 500;
-  let message = "Internal Server Error";
+  let message = 'Internal Server Error';
 
   if (err instanceof ApiError) {
     statusCode = err.statusCode;
