@@ -8,7 +8,8 @@ import {
     updateUser,
     changePassword,
     deleteUser,
-    loginUser
+    loginUser,
+    logoutUser
 } from '../controllers/userController'
 const router = Router();
 
@@ -21,6 +22,7 @@ router.get ('/getUserById/:id', authorize(PERMISSIONS.USER_VIEW), getUserById);
 router.post('/updateUser', authorize(PERMISSIONS.USER_UPDATE), updateUser);
 router.post('/changePassword/:id', authorize(PERMISSIONS.USER_UPDATE), changePassword);
 router.delete('/deleteUser', authorize(PERMISSIONS.USER_DELETE), deleteUser);
+router.post('/logoutUser', logoutUser);
 
 
 export default router;

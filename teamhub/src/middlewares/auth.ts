@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { env } from "../config/config";
 import User, { IUser } from "../models/User";
 import Role, { IRole } from "../models/Role";
+import redisClient from "../config/redis";
 import { Types } from "mongoose";
 
 export interface AuthRequest extends Request {
@@ -10,7 +11,7 @@ export interface AuthRequest extends Request {
         id: string;
         email?: string;
         name?: string;
-        roles?: string[]; // ObjectId stringleri
+        roles?: string[]; 
     };
 }
 
@@ -24,14 +25,19 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
         const token = authHeader.split(" ")[1];
         const payload = jwt.verify(token, env.JWT_SECRET) as { id: string };
 
+        const cachedToken = await redisClient.get(`user:${payload.id}`);
+            if (!cachedToken || cachedToken !== token) {
+            return res.status(401).json({ message: "Session expired or invalid" });
+        }
+
         const user = await User.findById(payload.id).populate<{ roles: IRole[] }>("roles");
         if (!user) return res.status(401).json({ message: "User not found" });
 
         req.user = {
-            id: (user._id as Types.ObjectId).toString(), // <-- tip dönüşümü
+            id: (user._id as Types.ObjectId).toString(), 
             email: user.email,
             name: user.name,
-            roles: (user.roles as IRole[]).map(r => (r._id as Types.ObjectId).toString()), // <-- tip dönüşümü
+            roles: (user.roles as IRole[]).map(r => (r._id as Types.ObjectId).toString()), 
         };
 
         next();
@@ -44,7 +50,6 @@ export const authorize = (requiredPermission: string) => {
     return async (req: AuthRequest, res: Response, next: NextFunction) => {
         if (!req.user) return res.status(401).json({ message: "Unauthorized" });
 
-        // req.user.roles string array, ObjectId stringleri ile sorgula
         const roles = await Role.find({ _id: { $in: req.user.roles } });
         const userPermissions = roles.flatMap(r => r.permissions);
 

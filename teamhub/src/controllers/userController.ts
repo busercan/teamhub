@@ -3,9 +3,11 @@ import User from '../models/User';
 import Role from '../models/Role';
 import { env } from "../config/config";
 import { ApiError } from "../utils/apiError";
+import redisClient from '../config/redis';
 import { Types } from "mongoose";
 import bcrypt from 'bcryptjs';
 import jwt from "jwt-simple";
+import { AuthRequest } from "../middlewares/auth"; 
 
 
 export const getUsers = async (req: Request, res: Response, next: NextFunction) => {
@@ -198,6 +200,12 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
         };
         const token = jwt.encode(payload, env.JWT_SECRET);
 
+        console.log('Saving token to Redis:', `user:${user.id}:token`, token);
+        await redisClient.set(`user:${user._id}`, token, {
+            EX: 60 * 60, 
+        });
+        console.log('Token saved');
+        
         res.status(200).json({
             success: true,
             token,
@@ -209,5 +217,24 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
         });
     } catch (error) {
         next(error);
+    }
+};
+
+export const logoutUser = async (req: AuthRequest, res: Response) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        const key = `user:${req.user.id}`; 
+        const deleted = await redisClient.del(key);
+
+        if (deleted === 0) {
+            return res.status(400).json({ success: false, message: "Session already expired or invalid" });
+        }
+
+        res.status(200).json({ success: true, message: "Logged out successfully" });
+    } catch (err: any) {
+        res.status(500).json({ success: false, message: "Logout error", error: err.message });
     }
 };

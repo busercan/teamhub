@@ -4,6 +4,7 @@ import { connectDB } from "./config/db";
 import { errorHandler } from "./middlewares/error";
 import fs from "fs";
 import path from "path";
+import redisClient from "./config/redis";
 
 dotenv.config();
 connectDB();
