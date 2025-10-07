@@ -1,8 +1,11 @@
 import { Server, Socket } from 'socket.io';
 import { socketAuth } from './socketAtuh';
+import redisClient from '../config/redis';
+import Message from '../models/message';
 import {
   getUnreadMessagesForSocket,
-  saveOfflineMessageForSocket,
+  saveAllMessageForSocket,
+  getAllMessagesForSocket
 } from '../controllers/messageController';
 
 export const setupChatSocket = (io: Server) => {
@@ -17,12 +20,23 @@ export const setupChatSocket = (io: Server) => {
         return socket.disconnect(true);
       }
 
-      console.log('User connected: ${userId}');
+      await redisClient.set(`online:${userId}`, 1);
+
+      console.log(`User connected: ${userId}`);
       socket.join(userId);
+      const allMessages = await getAllMessagesForSocket(userId);
+      if (allMessages.length > 0) {
+        socket.emit('all_messages', allMessages);
+      }
 
       const unread = await getUnreadMessagesForSocket(userId);
       if (unread.length > 0) {
         socket.emit('unread_messages', unread);
+
+        await Message.updateMany(
+          { to: userId, read: false },
+          { $set: { read: true } }
+        );
       }
 
       socket.on(
@@ -37,6 +51,10 @@ export const setupChatSocket = (io: Server) => {
               });
             }
 
+            const from = socket.data.userId;
+            const savedMessage = await saveAllMessageForSocket(from, to, message);
+            console.log(`All messages stored for user ${to}`);
+
             const targetSockets = await io.in(to).fetchSockets();
 
             if (targetSockets.length > 0) {
@@ -46,11 +64,10 @@ export const setupChatSocket = (io: Server) => {
                 createdAt: new Date(),
               });
 
-              console.log('Message sent to online user ${to}');
+              console.log(`Message sent to online user ${to}`);
               ack?.({ ok: true, delivered: true });
             } else {
-              await saveOfflineMessageForSocket(userId, to, message);
-              console.log('Offline message stored for user ${to}');
+              console.log(`Kullanıcı offline, mesaj DB'de saklandı: ${to}`);
               ack?.({ ok: true, delivered: false, offlineSaved: true });
             }
           } catch (err) {
@@ -63,6 +80,7 @@ export const setupChatSocket = (io: Server) => {
       socket.on('message_read', async (data: { messageId: string; from: string }) => {
         try {
           if (data?.from) {
+            await Message.findByIdAndUpdate(data.messageId, { read: true });
             io.to(data.from).emit('message_read', {
               messageId: data.messageId,
               by: userId,
@@ -73,9 +91,12 @@ export const setupChatSocket = (io: Server) => {
         }
       });
 
-      socket.on('disconnect', (reason) => {
-        console.log('User disconnected: ${userId} (${reason})');
+      socket.on('disconnect', async (reason) => {
+        console.log(`User disconnected: ${userId} (${reason})`);
+        await redisClient.del(`online:${userId}`);
       });
+
+
     } catch (err) {
       console.error('Socket connection error:', err);
       socket.disconnect(true);

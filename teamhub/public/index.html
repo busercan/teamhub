@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TeamHub - Basic Login & Chat Tester</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width: 900px; margin: 24px auto; padding: 16px; }
+    .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin-bottom: 12px; background:#fff; }
+    label { display:block; margin-top:8px; font-size:13px; color:#333; }
+    input[type="text"], input[type="password"] { width:100%; padding:8px; margin-top:6px; box-sizing:border-box; }
+    button { padding:8px 12px; margin-top:10px; cursor:pointer; }
+    #messages { height:300px; overflow:auto; border:1px solid #ddd; padding:8px; border-radius:6px; background:#fbfbfb; }
+    .msg { padding:6px; margin-bottom:6px; border-radius:6px; background:#f1f1f1; }
+    .meta { font-size:12px; color:#666; }
+    .row { display:flex; gap:8px; }
+    .col { flex:1; }
+    small.hint { color:#666; display:block; margin-top:6px; }
+    .muted { color:#888; font-size:13px;}
+  </style>
+</head>
+<body>
+
+  <h2>TeamHub — Basit Test Arayüzü</h2>
+
+  <div class="card" id="loginCard">
+    <h3>1) Giriş</h3>
+    <label>Email</label>
+    <input id="email" type="text" placeholder="email@example.com" value="">
+    <label>Şifre</label>
+    <input id="password" type="password" placeholder="şifre">
+    <button id="loginBtn">Giriş Yap</button>
+    <div id="loginStatus" class="muted"></div>
+    <small class="hint">Backend adresini aşağıdaki ayarda değiştirebilirsin (default: http://localhost:5000)</small>
+  </div>
+
+  <div class="card" id="afterLogin" style="display:none;">
+    <h3>2) Chat</h3>
+
+    <div style="display:flex; gap:12px; align-items:flex-start;">
+      <div style="flex:1">
+        <div class="muted">Online kullanıcılar (sunucudan çek)</div>
+        <button id="refreshOnline">Yenile</button>
+        <div id="onlineList" class="muted" style="margin-top:8px;"></div>
+
+        <hr>
+
+        <div class="muted">Mesajlar</div>
+        <div id="messages"></div>
+      </div>
+
+      <div style="width:300px">
+        <div class="muted">Alıcı kullanıcı id (to)</div>
+        <input id="toInput" type="text" placeholder="recipient_user_id">
+
+        <label>Mesaj</label>
+        <input id="msgInput" type="text" placeholder="Mesaj...">
+        <button id="sendBtn">Gönder</button>
+
+        <hr>
+        <div class="muted">Durum</div>
+        <div id="status" class="muted"></div>
+      </div>
+    </div>
+
+    <button id="logoutBtn" style="margin-top:12px;">Çıkış Yap</button>
+  </div>
+
+  <!-- Socket.IO CDN -->
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script>
+    // ====== AYAR ======
+    const API_BASE = "http://localhost:5000"; // gerektiğinde backend adresini buradan değiştir
+    const LOGIN_PATH = "/api/user/loginUser";
+    const ONLINE_USERS_PATH = "/api/message/online";
+    // ==================
+
+    // DOM
+    const loginCard = document.getElementById('loginCard');
+    const afterLogin = document.getElementById('afterLogin');
+    const emailEl = document.getElementById('email');
+    const passEl = document.getElementById('password');
+    const loginBtn = document.getElementById('loginBtn');
+    const loginStatus = document.getElementById('loginStatus');
+    const messagesDiv = document.getElementById('messages');
+    const msgInput = document.getElementById('msgInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const toInput = document.getElementById('toInput');
+    const statusDiv = document.getElementById('status');
+    const onlineList = document.getElementById('onlineList');
+    const refreshOnline = document.getElementById('refreshOnline');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    let socket = null;
+    let user = null;
+    function appendMsg(text, meta) {
+      const d = document.createElement('div');
+      d.className = 'msg';
+      d.innerHTML = `<div>${text}</div>${meta ? '<div class="meta">'+meta+'</div>' : ''}`;
+      messagesDiv.appendChild(d);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // login
+    loginBtn.onclick = async () => {
+      const email = emailEl.value.trim();
+      const password = passEl.value.trim();
+      if (!email || !password) { loginStatus.textContent = "Email ve şifre gerekli."; return; }
+      loginStatus.textContent = "Giriş yapılıyor...";
+
+      try {
+        const res = await fetch(API_BASE + LOGIN_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          loginStatus.textContent = "Giriş başarısız: " + (data.message || JSON.stringify(data));
+          return;
+        }
+        const token = data.token;
+        user = data.user || null;
+        sessionStorage.setItem("th_token", token);
+        sessionStorage.setItem("th_user", JSON.stringify(user));
+        loginStatus.textContent = "Giriş başarılı. Socket bağlanıyor...";
+        initSocket(token);
+        showChat();
+      } catch (err) {
+        loginStatus.textContent = "Giriş hatası: " + err.message;
+      }
+    };
+
+    // logout
+    logoutBtn.onclick = async () => {
+      sessionStorage.removeItem("th_token");
+      sessionStorage.removeItem("th_user");
+      if (socket) {
+        socket.disconnect();
+        socket = null;
+      }
+      loginCard.style.display = '';
+      afterLogin.style.display = 'none';
+      messagesDiv.innerHTML = '';
+      loginStatus.textContent = "Çıkış yapıldı.";
+    };
+
+    function showChat() {
+      loginCard.style.display = 'none';
+      afterLogin.style.display = '';
+      statusDiv.textContent = "Socket bağlantısı bekleniyor...";
+    }
+
+    // init socket with token
+    function initSocket(token) {
+      if (socket) {
+        try { socket.disconnect(); } catch(e){}
+        socket = null;
+      }
+
+      // socket.io connects to same origin by default, but we give full backend address
+      socket = io(API_BASE, {
+        auth: { token }, // backend checks handshake.auth.token
+        transports: ['websocket'],
+        autoConnect: true
+      });
+
+      socket.on("connect", () => {
+        statusDiv.textContent = "✅ Socket bağlı (id: " + socket.id + ")";
+      });
+
+      socket.on("disconnect", (reason) => {
+        statusDiv.textContent = "❌ Socket disconnected: " + reason;
+      });
+
+      // initial messages list (sent by server on connection)
+      socket.on("all_messages", (messages) => {
+        appendMsg("---- Tüm mesajlar alındı ("+ (messages.length||0) +") ----");
+        messages.forEach(m => {
+          appendMsg(`[${m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}] ${m.from} → ${m.to}: ${m.message}`, m.read ? "ok: read" : "ok: unread");
+        });
+      });
+
+      socket.on("unread_messages", (messages) => {
+        appendMsg("---- Okunmamış mesajlar ("+(messages.length||0)+") ----");
+        messages.forEach(m => appendMsg(`[${m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}] ${m.from}: ${m.message}`, "unread"));
+      });
+
+      socket.on("private_message", (data) => {
+        // example payload: { from, message, createdAt }
+        appendMsg(`${data.from} → SİZE: ${data.message}`, data.createdAt ? new Date(data.createdAt).toLocaleString() : '');
+      });
+
+      socket.on("message_read", (info) => {
+        appendMsg("Mesaj okundu: " + (info.messageId || '') + " by: " + info.by);
+      });
+
+      socket.on("connect_error", (err) => {
+        statusDiv.textContent = "connect_error: " + (err.message || err);
+      });
+    }
+
+    // send message via socket (private_message)
+    sendBtn.onclick = () => {
+      const to = toInput.value.trim();
+      const msg = msgInput.value.trim();
+      if (!to || !msg) {
+        statusDiv.textContent = "Alıcı (to) ve mesaj gerekli.";
+        return;
+      }
+      if (!socket || socket.disconnected) {
+        statusDiv.textContent = "Socket bağlı değil.";
+        return;
+      }
+
+      // emit with acknowledgement
+      socket.emit("private_message", { to, message: msg }, (ack) => {
+        if (!ack) {
+          appendMsg("Sunucudan ack gelmedi. Mesaj gönderildi (durum bilinmiyor).");
+          return;
+        }
+        if (ack.ok) {
+          appendMsg("Siz → " + to + ": " + msg, "delivered: " + (ack.delivered ? "yes" : "no (saved)"));
+        } else {
+          appendMsg("Gönderilemedi: " + (ack.error || JSON.stringify(ack)));
+        }
+      });
+
+      msgInput.value = "";
+    };
+
+    // refresh online users
+    async function loadOnlineUsers() {
+      const token = sessionStorage.getItem("th_token");
+      if (!token) { onlineList.textContent = "Token yok."; return; }
+      try {
+        const res = await fetch(API_BASE + ONLINE_USERS_PATH, {
+          headers: { Authorization: "Bearer " + token }
+        });
+        const data = await res.json();
+        if (data.success) {
+          onlineList.textContent = (data.onlineUsers || []).join(", ") || "(hiç yok)";
+        } else {
+          onlineList.textContent = "Hata: " + (data.message || JSON.stringify(data));
+        }
+      } catch (err) {
+        onlineList.textContent = "Fetch hata: " + err.message;
+      }
+    }
+
+    refreshOnline.onclick = loadOnlineUsers;
+
+    // if token already present, auto connect
+    (function tryAuto() {
+      const token = sessionStorage.getItem("th_token");
+      const u = sessionStorage.getItem("th_user");
+      if (token) {
+        try { user = JSON.parse(u); } catch(e){ user = null; }
+        initSocket(token);
+        showChat();
+        // fetch online list after short delay
+        setTimeout(loadOnlineUsers, 600);
+      }
+    })();
+
+  </script>
+</body>
+</html>

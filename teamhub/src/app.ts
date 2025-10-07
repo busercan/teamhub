@@ -7,12 +7,19 @@ import path from 'path';
 import http from 'http';
 import { Server } from 'socket.io';
 import { setupChatSocket } from './socket/chatSocket';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 connectDB();
 
 const app = express();
 app.use(express.json());
+
+// CommonJS için __dirname çözümü
+const __dirnameFull = path.resolve();
+
+// public klasörünü statik aç
+app.use(express.static(path.join(__dirnameFull, 'public')));
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
